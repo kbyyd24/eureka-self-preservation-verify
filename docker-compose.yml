@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    image: eureka-server:latest
+    ports:
+      - "8080:8080"
+  eureka-client:
+    build:
+      context: ./eureka-client
+      dockerfile: Dockerfile
+    image: eureka-client:latest
+    ports:
+      - "8081"

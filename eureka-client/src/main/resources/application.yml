@@ -1,0 +1,15 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: test-client
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8080/eureka
+logging:
+  level:
+    com:
+      netflix:
+        discovery:
+          DiscoveryClient: debug
