@@ -1,0 +1,109 @@
+= Eureka Self Preservation Verification
+
+This project is used to check the self-preservation mode in eureka.
+
+See the description of self-preservation mode: link:https://github.com/Netflix/eureka/wiki/Server-Self-Preservation-Mode[https://github.com/Netflix/eureka/wiki/Server-Self-Preservation-Mode]
+
+According to the wiki and source code, I suppose the `evict` action won't work because of self-preservation mode when the clients are up to 12 by default values.
+
+For Chinese, you could see the following content on my blog: link:https://blog.gaoyuexiang.cn/2020/07/25/eureka-self-preservation-mode/[Eureka 中的幽灵]
+
+== Verification
+
+=== First Start with 12 Clients
+
+[source,shell]
+----
+docker-compose up -d --scale eureka-client=12
+----
+
+A few minutes later, visit http://localhost:8080, you can see that `Renews threshold` is 22 and `Renews (last min)` is 24.
+
+=== Then Kill one Client
+
+[source,shell]
+----
+docker kill eureka-self-preservation-verify_eureka-client_1
+----
+
+Two minutes later, the killed client lease info is still in Eureka server registry.
+
+This is because the `Renews (last min)` is down to 22, and `Renews threshold` is still 22, the former one is not bigger than the latter one, the self-preservation mode works.
+
+=== Start with 13 Clients
+
+[source,shell]
+----
+docker-compose up -d --scale eureka-client=13
+----
+
+A few minutes later, visit http://localhost:8080, you can see that `Renews threshold` is 23 and `Renews (last min)` is 26.
+
+=== Then Kill one Client
+
+[source,shell]
+----
+docker kill eureka-self-preservation-verify_eureka-client_1
+----
+
+Two minutes latter, the killed client lease info will be evicted.
+
+This is because the `Renews (last min)` is down to 24, which is bigger than `Renews threshold` which is still 23.
+
+One more minute later, the `Renews threshold` will down to 22.
+
+== Why
+
+When self-preservation mode is on, Eureka will compare the two values:
+
+    renews-threshold > 0 && last-min-renews > renews-threshold
+
+=== Last min renews
+
+This is the count of heartbeat which eureka server received in the last minute. By default, eureka client send heart beat per 30s. So the value is `2*client-size`.
+
+=== Renews threshold
+
+This value is more complex than previous one.
+
+    renews-threshold = (int) ((client-size + default-open-for-traffic-count)
+                * (60.0 / expected-client-renewal-interval-seconds)
+                * renewal-percent-threshold)
+
+.Values
+|===
+| value | default | property
+
+| default-open-for-traffic
+| 1
+| `eureka.server.defaultOpenForTrafficCount`
+
+| expect-client-renewal-interval-seconds
+| 30
+| `eureka.server.expected-client-renewal-interval-seconds`
+
+| renewal-percent-threshold
+| 0.85
+| `eureka.server.renewal-percent-threshold`
+|===
+
+So, by the default value, the renews-threshold is:
+
+    renews-threshold = (int) (1.7 * (client-size + 1))
+
+=== Why the minimum number is 13
+
+This is just about math, let's find the minimum number of client-size which could avoid self-preservation to evict one expired lease.
+
+If all clients are online, the renews in the last minute is `2*client-size`, the renews-threshold is `1.7 * (client-size + 1)`.
+
+Let's assume `m` is the number of missing client, `n` is client-size, then we can get:
+
+    2n - 1.7(n+1) ≤ 2m
+    => 0.3n - 1.7 ≤ 2m
+    => 0.15n - 0.85 ≤ m
+    => 0.15n ≤ m + 0.85
+
+This expression is true when self-preservation mode works. If `m=1`, then `n≤12.333...`.
+
+This means when there are 12.333 clients, eureka server can evict one expired client. So the minimum client size is 13.
